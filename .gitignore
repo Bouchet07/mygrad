@@ -79,6 +79,7 @@ target/
 .ipynb_checkpoints
 
 test_module.ipynb
+demo.ipynb
 
 # IPython
 profile_default/

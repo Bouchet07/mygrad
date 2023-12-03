@@ -1,10 +1,22 @@
 from numbers import Real
-from math import log
+from math import log, tanh
 
 __all__ = ['Value']
 
 def _safe_log(x):
     return log(x) if x > 0 else float('-inf')
+
+def _safe_division(x, y):
+    try:
+        result = x / y
+    except ZeroDivisionError:
+        if x > 0:
+            result = float('inf')  # positive infinity
+        elif x < 0:
+            result = float('-inf')  # negative infinity
+        else:
+            result = float('nan')  # undefined (nan = "not a number")
+    return result
 
 def _build_topo(node, topo = None, visited=None):
     if topo is None: topo = []
@@ -55,7 +67,7 @@ class Value:
         
         def _backward():
             self.grad += other.data * self.data ** (other.data-1) * out.grad
-            other.grad += self.data ** other.data / _safe_log(self.data)
+            other.grad += _safe_division(self.data ** other.data , _safe_log(self.data))
         out._backward = _backward
         
         return out
@@ -67,6 +79,14 @@ class Value:
             self.grad += cond * out.grad
         out._backward = _backward
         
+        return out
+    
+    def tanh(self):
+        out = Value(tanh(self.data), (self,), 'tanh')
+        
+        def _backward():
+            self.grad += (1 - out.data**2) * out.grad
+        out._backward = _backward
         return out
     
     def backward(self):
