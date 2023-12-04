@@ -1,5 +1,5 @@
 from numbers import Real
-from math import log, tanh
+from math import exp, log, tanh
 
 __all__ = ['Value']
 
@@ -86,6 +86,14 @@ class Value:
         
         def _backward():
             self.grad += (1 - out.data**2) * out.grad
+        out._backward = _backward
+        return out
+    
+    def sigm(self):
+        out = Value(1 + exp(-self.data), (self,), 'sigm')
+        
+        def _backward():
+            self.grad += self.data*(1 - self.data) * out.grad
         out._backward = _backward
         return out
     
