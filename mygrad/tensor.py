@@ -32,8 +32,14 @@ class Tensor:
     def __array__(self) -> np.ndarray:
         return self.data
     
+    def __neg__(self) -> 'Tensor':
+        return neg(self)
+    
     def __add__(self, other: Union[Arraylike, 'Tensor']) -> 'Tensor':
         return add(self, other)
+    
+    def __sub__(self, other: Union[Arraylike, 'Tensor']) -> 'Tensor':
+        return sub(self, other)
     
     def __mul__(self, other: Union[Arraylike, 'Tensor']) -> 'Tensor':
         return mul(self, other)
@@ -44,8 +50,8 @@ class Tensor:
         assert self.requires_grad, "called backward on non-requires-grad tensor"
         
         if grad is None: grad = np.ones_like(self.data)
-        if self.grad is None: self.grad = np.zeros_like(self.data) # Line to let mypy be happy
-        self.grad = self.grad + grad
+        if self.grad is None: self.grad = np.zeros_like(self.data)  # Line to let mypy be happy but also if requires_grad
+        self.grad = self.grad + grad                                # is modified at runtime, it will defined missing grad
         
         for dependency in self.depends_on:
             backward_grad = dependency.grad_fn(self.grad)
@@ -68,16 +74,20 @@ def tensor_sum(t: Tensor, axis: Optional[int] = None) -> Tensor:
     
     return Tensor(data, requires_grad, depends_on)
 
-def add(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]):
+def _add_sub(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike], is_sub: bool) -> Tensor:
     if not isinstance(t1, Tensor): t1 = Tensor(t1)
     if not isinstance(t2, Tensor): t2 = Tensor(t2)
     
-    data = t1.data + t2.data
+    if is_sub:  data = t1.data - t2.data
+    else:       data = t1.data + t2.data
+    
     requires_grad = t1.requires_grad or t2.requires_grad
     
     depends_on = []
     if requires_grad:
-        def grad_fn(grad: np.ndarray, t: Tensor):
+        def grad_fn(grad: np.ndarray, t: Tensor, affected_by_sub: bool):
+            if is_sub:
+                if affected_by_sub: grad = -grad
             # Sum out added dims
             ndims_added = grad.ndim - t.data.ndim
             for _ in range(ndims_added):
@@ -90,17 +100,23 @@ def add(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]):
             return grad
                     
     if t1.requires_grad:
-        def grad_fn1(grad: np.ndarray): return grad_fn(grad, t1)
+        def grad_fn1(grad: np.ndarray): return grad_fn(grad, t1, False)
         depends_on.append(Dependency(t1, grad_fn1))
     
     if t2.requires_grad:
-        def grad_fn2(grad: np.ndarray): return grad_fn(grad, t2)
+        def grad_fn2(grad: np.ndarray): return grad_fn(grad, t2, True)
         depends_on.append(Dependency(t2, grad_fn2))
     
     return Tensor(data, requires_grad, depends_on)
+
+def add(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> Tensor:
+    return _add_sub(t1, t2, False)
+
+def sub(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> 'Tensor':
+    return _add_sub(t1, t2, True)
     
          
-def mul(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]):
+def mul(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> Tensor:
     if not isinstance(t1, Tensor): t1 = Tensor(t1)
     if not isinstance(t2, Tensor): t2 = Tensor(t2)
     
@@ -132,3 +148,18 @@ def mul(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]):
         depends_on.append(Dependency(t2, grad_fn2))
     
     return Tensor(data, requires_grad, depends_on)
+
+# I could've used multiplication by (-1) to do this, but it is more efficient like this
+# It doesn't create another tensor for -1, and the bradcasting doesn't need to be looked at
+def neg(t: Union[Tensor, Arraylike]) -> 'Tensor':
+    if not isinstance(t, Tensor): t = Tensor(t)
+    data = t.data
+    requires_grad = t.requires_grad
+    
+    if requires_grad:
+        depends_on = [Dependency(t, lambda x: -x)]
+    else: depends_on = []
+    
+    return Tensor(data, requires_grad, depends_on)
+
+    
