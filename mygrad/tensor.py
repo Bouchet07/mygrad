@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Callable, NamedTuple, List, Set, Optional, Union, overload, Any
+from typing import Callable, NamedTuple, List, Set, Optional, Union
 
 Arraylike = Union[np.ndarray, list, float]
 Tensorlike = Union[Arraylike, 'Tensor']
