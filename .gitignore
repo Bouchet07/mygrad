@@ -80,6 +80,7 @@ target/
 
 test_module.ipynb
 demo.ipynb
+*.ipynb
 
 # IPython
 profile_default/
