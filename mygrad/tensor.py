@@ -1,7 +1,8 @@
 import numpy as np
-from typing import Callable, NamedTuple, List, Optional, Union
+from typing import Callable, NamedTuple, List, Set, Optional, Union, overload, Any
 
 Arraylike = Union[np.ndarray, list, float]
+Tensorlike = Union[Arraylike, 'Tensor']
 
 class Dependency(NamedTuple):
     tensor: 'Tensor'
@@ -35,27 +36,40 @@ class Tensor:
     def __neg__(self) -> 'Tensor':
         return neg(self)
     
-    def __add__(self, other: Union[Arraylike, 'Tensor']) -> 'Tensor':
+    def __add__(self, other: Tensorlike) -> 'Tensor':
         return add(self, other)
     
-    def __sub__(self, other: Union[Arraylike, 'Tensor']) -> 'Tensor':
+    def __radd__(self, other) -> 'Tensor':
+        return add(self, other)
+    
+    def __iadd__(self, other: Tensorlike) -> 'Tensor':
+        if not isinstance(other, Tensor): other = Tensor(other)
+        self.data = self.data + other.data
+        return self
+    
+    def __sub__(self, other: Tensorlike) -> 'Tensor':
         return sub(self, other)
     
-    def __mul__(self, other: Union[Arraylike, 'Tensor']) -> 'Tensor':
+    def __mul__(self, other: Tensorlike) -> 'Tensor':
         return mul(self, other)
     
-    def zero_grad(self) -> None: pass
+    def zero_grad(self) -> None:
+        self.grad = np.zeros_like(self.data)
+    
+    def _backward(self) -> None:                           # is modified at runtime, it will defined missing grad
+        for dependency in self.depends_on:
+            if self.grad is None: self.grad = np.zeros_like(self.data) # Line to let mypy be happy
+            backward_grad = dependency.grad_fn(self.grad)
+            dependency.tensor.grad = dependency.tensor.grad + backward_grad
     
     def backward(self, grad: Optional[Arraylike] = None) -> None:
         assert self.requires_grad, "called backward on non-requires-grad tensor"
         
         if grad is None: grad = np.ones_like(self.data)
-        if self.grad is None: self.grad = np.zeros_like(self.data)  # Line to let mypy be happy but also if requires_grad
-        self.grad = self.grad + grad                                # is modified at runtime, it will defined missing grad
+        self.grad = np.asarray(grad)
         
-        for dependency in self.depends_on:
-            backward_grad = dependency.grad_fn(self.grad)
-            dependency.tensor.backward(backward_grad)
+        for node in _build_topo(self, reverse=True):
+            node._backward()
     
     def sum(self, axis: Optional[int] = None) -> 'Tensor':
         return tensor_sum(self, axis)
@@ -74,7 +88,7 @@ def tensor_sum(t: Tensor, axis: Optional[int] = None) -> Tensor:
     
     return Tensor(data, requires_grad, depends_on)
 
-def _add_sub(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike], is_sub: bool) -> Tensor:
+def _add_sub(t1: Tensorlike, t2: Tensorlike, is_sub: bool) -> Tensor:
     if not isinstance(t1, Tensor): t1 = Tensor(t1)
     if not isinstance(t2, Tensor): t2 = Tensor(t2)
     
@@ -109,14 +123,14 @@ def _add_sub(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike], is_sub:
     
     return Tensor(data, requires_grad, depends_on)
 
-def add(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> Tensor:
+def add(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     return _add_sub(t1, t2, False)
 
-def sub(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> 'Tensor':
+def sub(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     return _add_sub(t1, t2, True)
     
          
-def mul(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> Tensor:
+def mul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     if not isinstance(t1, Tensor): t1 = Tensor(t1)
     if not isinstance(t2, Tensor): t2 = Tensor(t2)
     
@@ -151,9 +165,9 @@ def mul(t1: Union[Tensor, Arraylike], t2: Union[Tensor, Arraylike]) -> Tensor:
 
 # I could've used multiplication by (-1) to do this, but it is more efficient like this
 # It doesn't create another tensor for -1, and the bradcasting doesn't need to be looked at
-def neg(t: Union[Tensor, Arraylike]) -> 'Tensor':
+def neg(t: Tensorlike) -> 'Tensor':
     if not isinstance(t, Tensor): t = Tensor(t)
-    data = t.data
+    data = -t.data
     requires_grad = t.requires_grad
     
     if requires_grad:
@@ -162,4 +176,13 @@ def neg(t: Union[Tensor, Arraylike]) -> 'Tensor':
     
     return Tensor(data, requires_grad, depends_on)
 
-    
+def _build_topo(node: Tensor, topo: Optional[List[Tensor]] = None, visited: Optional[Set[Tensor]]=None, reverse: bool = False) -> list:
+    if topo is None: topo = []
+    if visited is None: visited = set()
+    if node not in visited:
+        visited.add(node)
+        for dependency in node.depends_on:
+            _build_topo(dependency.tensor, topo, visited)
+        topo.append(node)
+    if reverse: topo = list(reversed(topo))
+    return topo
