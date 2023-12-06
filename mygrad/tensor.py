@@ -7,6 +7,12 @@ Tensorlike = Union[Arraylike, 'Tensor']
 class Dependency(NamedTuple):
     tensor: 'Tensor'
     grad_fn: Callable[[np.ndarray], np.ndarray]
+    
+    def __repr__(self) -> str:
+        # same number of ' ' than letters in Dependency( = 11
+        formatted_data = repr(self.tensor).replace('\n', '\n           ')
+        
+        return f'Dependency({formatted_data}, grad_fn)'
 
 
 class Tensor:
@@ -27,7 +33,8 @@ class Tensor:
         if requires_grad: self.grad = np.zeros_like(self.data)
     
     def __repr__(self) -> str:
-        formatted_data = repr(self.data).replace('\n', '\n       ') # same number of ' ' than letters in Tensor( = 7
+        # same number of ' ' than letters in Tensor( = 7
+        formatted_data = repr(self.data).replace('\n', '\n       ')
         return f"Tensor({formatted_data}, requires_grad={self.requires_grad})"
     
     def __array__(self) -> np.ndarray:
@@ -52,6 +59,9 @@ class Tensor:
     
     def __mul__(self, other: Tensorlike) -> 'Tensor':
         return mul(self, other)
+    
+    def __matmul__(self, other: Tensorlike) -> 'Tensor':
+        return matmul(self, other)
     
     def zero_grad(self) -> None:
         self.grad = np.zeros_like(self.data)
@@ -175,6 +185,37 @@ def neg(t: Tensorlike) -> 'Tensor':
     else: depends_on = []
     
     return Tensor(data, requires_grad, depends_on)
+
+def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
+    """
+    if t1 is (n1, m1) and t2 is (m1, m2), then t1 @ t2 is (n1, m2)
+    so grad3 is (n1, m2)
+    if t3 = t1 @ t2, and grad3 is the gradient of some function wrt t3, then
+        grad1 = grad3 @ t2.T
+        grad2 = t1.T @ grad3
+    """
+    if not isinstance(t1, Tensor): t1 = Tensor(t1)
+    if not isinstance(t2, Tensor): t2 = Tensor(t2)
+    
+    data = t1.data @ t2.data
+    requires_grad = t1.requires_grad or t2.requires_grad
+
+    depends_on = []
+
+    if t1.requires_grad:
+        def grad_fn1(grad: np.ndarray) -> np.ndarray:
+            return grad @ t2.data.T
+
+        depends_on.append(Dependency(t1, grad_fn1))
+
+    if t2.requires_grad:
+        def grad_fn2(grad: np.ndarray) -> np.ndarray:
+            return t1.data.T @ grad
+        depends_on.append(Dependency(t2, grad_fn2))
+
+    return Tensor(data,
+                  requires_grad,
+                  depends_on)
 
 def _build_topo(node: Tensor, topo: Optional[List[Tensor]] = None, visited: Optional[Set[Tensor]]=None, reverse: bool = False) -> list:
     if topo is None: topo = []
