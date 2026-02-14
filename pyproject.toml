@@ -1,0 +1,21 @@
+[project]
+name = "mygrad"
+version = "0.1.0"
+description = "Autograd made by me based on micrograd"
+readme = "README.md"
+authors = [
+    { name = "Bouchet07", email = "diegobouchet88@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.2.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.1,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
