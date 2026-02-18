@@ -93,7 +93,7 @@ class Tensor:
         for node in _build_topo(self, reverse=True):
             node._backward()
     
-    def sum(self, axis: int | None = None) -> 'Tensor':
+    def sum(self, axis: int | None = None) -> Tensor:
         return tensor_sum(self, axis)
 
 
@@ -142,8 +142,8 @@ def _add_sub(t1: Tensorlike, t2: Tensorlike, is_sub: bool) -> Tensor:
     depends_on = []
     if requires_grad:
         def grad_fn(grad: np.ndarray, t: Tensor, affected_by_sub: bool):
-            if is_sub:
-                if affected_by_sub: grad = -grad
+            if is_sub and affected_by_sub:
+                grad = -grad
             # Sum out added dims
             ndims_added = grad.ndim - t.data.ndim
             for _ in range(ndims_added):
