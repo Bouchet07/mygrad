@@ -50,12 +50,20 @@ class Tensor:
         return add(self, other)
     
     def __iadd__(self, other: Tensorlike) -> Tensor:
-        if not isinstance(other, Tensor): other = Tensor(other)
+        other = as_tensor(other)
         self.data = self.data + other.data
         return self
     
     def __sub__(self, other: Tensorlike) -> Tensor:
         return sub(self, other)
+    
+    def __rsub__(self, other: Tensorlike) -> Tensor:
+        return sub(other, self)
+    
+    def __isub__(self, other: Tensorlike) -> Tensor:
+        other = as_tensor(other)
+        self.data = self.data - other.data
+        return self
     
     def __mul__(self, other: Tensorlike) -> Tensor:
         return mul(self, other)
@@ -68,14 +76,18 @@ class Tensor:
     
     def _backward(self) -> None:                           # is modified at runtime, it will defined missing grad
         for dependency in self.depends_on:
-            if self.grad is None: self.grad = np.zeros_like(self.data) # Line to let mypy be happy
+            if self.grad is None:
+                self.grad = np.zeros_like(self.data) # Line to let mypy be happy
+            
             backward_grad = dependency.grad_fn(self.grad)
             dependency.tensor.grad = dependency.tensor.grad + backward_grad
     
     def backward(self, grad: np.ndarray | None = None) -> None:
         assert self.requires_grad, "called backward on non-requires-grad tensor"
         
-        if grad is None: grad = np.ones_like(self.data)
+        if grad is None:
+            grad = np.ones_like(self.data)
+        
         self.grad = np.asarray(grad)
         
         for node in _build_topo(self, reverse=True):
@@ -120,8 +132,10 @@ def _add_sub(t1: Tensorlike, t2: Tensorlike, is_sub: bool) -> Tensor:
     t1 = as_tensor(t1)
     t2 = as_tensor(t2)
     
-    if is_sub:  data = t1.data - t2.data
-    else:       data = t1.data + t2.data
+    if is_sub:
+        data = t1.data - t2.data
+    else:
+        data = t1.data + t2.data
     
     requires_grad = t1.requires_grad or t2.requires_grad
     
@@ -159,8 +173,8 @@ def sub(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     
          
 def mul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
-    if not isinstance(t1, Tensor): t1 = Tensor(t1)
-    if not isinstance(t2, Tensor): t2 = Tensor(t2)
+    t1 = as_tensor(t1)
+    t2 = as_tensor(t2)
     
     data = t1.data * t2.data
     requires_grad = t1.requires_grad or t2.requires_grad 
@@ -193,16 +207,16 @@ def mul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
 
 # I could've used multiplication by (-1) to do this, but it is more efficient like this
 # It doesn't create another tensor for -1, and the bradcasting doesn't need to be looked at
-def neg(t: Tensorlike) -> 'Tensor':
-    if not isinstance(t, Tensor): t = Tensor(t)
+def neg(t: Tensorlike) -> Tensor:
+    t = as_tensor(t)
     data = -t.data
-    requires_grad = t.requires_grad
     
-    if requires_grad:
+    if t.requires_grad:
         depends_on = [Dependency(t, lambda x: -x)]
-    else: depends_on = []
+    else:
+        depends_on = []
     
-    return Tensor(data, requires_grad, depends_on)
+    return Tensor(data, t.requires_grad, depends_on)
 
 def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     """
@@ -212,8 +226,8 @@ def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
         grad1 = grad3 @ t2.T
         grad2 = t1.T @ grad3
     """
-    if not isinstance(t1, Tensor): t1 = Tensor(t1)
-    if not isinstance(t2, Tensor): t2 = Tensor(t2)
+    t1 = as_tensor(t1)
+    t2 = as_tensor(t2)
     
     data = t1.data @ t2.data
     requires_grad = t1.requires_grad or t2.requires_grad
@@ -235,13 +249,22 @@ def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
                   requires_grad,
                   depends_on)
 
-def _build_topo(node: Tensor, topo: list[Tensor] | None = None, visited: set[Tensor] | None=None, reverse: bool = False) -> list:
-    if topo is None: topo = []
-    if visited is None: visited = set()
+def _build_topo(node: Tensor, topo: list[Tensor] | None = None,
+                visited: set[Tensor] | None=None, reverse: bool = False) -> list:
+    
+    if topo is None:
+        topo = []
+    
+    if visited is None:
+        visited = set()
+    
     if node not in visited:
         visited.add(node)
         for dependency in node.depends_on:
             _build_topo(dependency.tensor, topo, visited)
         topo.append(node)
-    if reverse: topo = list(reversed(topo))
+    
+    if reverse:
+        topo = list(reversed(topo))
+    
     return topo
