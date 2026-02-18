@@ -4,7 +4,8 @@ import mygrad
 
 class Layer():
 
-    def __init__(self, nin: int, nout: int, actf: Optional[Union[str, Callable[[Arraylike], Tensor]]]='relu'):
+    def __init__(self, nin: int, nout: int,
+                 actf: str | Callable[[Arraylike], Tensor] | None = 'relu'):
         W = np.random.randn(nin,nout)
         b = np.random.randn(1, nout)
         self.W = Tensor(W, requires_grad=True)
@@ -22,7 +23,7 @@ class Layer():
                 
     
 class MLP():
-    def __init__(self, nin: int, nouts: List[int], actf_l: Union[str, List[int]]) -> None:
+    def __init__(self, nin: int, nouts: list[int], actf_l: str | list[str]) -> None:
         sz = [nin] + nouts
         if isinstance(actf_l, str): actf_l = [actf_l]*(len(nouts)-1)+[None]
         self.layers = [Layer(sz[i], sz[i+1], actf_l[i]) for i in range(len(nouts))]

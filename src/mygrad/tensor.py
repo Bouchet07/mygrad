@@ -1,17 +1,18 @@
 import numpy as np
-from typing import Callable, NamedTuple, List, Set, Optional, Union
+from typing import Callable, NamedTuple, TypeAlias
 
-Arraylike = Union[np.ndarray, list, float]
-Tensorlike = Union[Arraylike, 'Tensor']
+class Tensor: ...
+
+Arraylike: TypeAlias = np.ndarray | list | float
+Tensorlike: TypeAlias = Arraylike | Tensor
 
 class Dependency(NamedTuple):
-    tensor: 'Tensor'
+    tensor: Tensor
     grad_fn: Callable[[np.ndarray], np.ndarray]
     
     def __repr__(self) -> str:
         # same number of ' ' than letters in Dependency( = 11
-        formatted_data = repr(self.tensor).replace('\n', '\n           ')
-        
+        formatted_data = repr(self.tensor).replace('\n', '\n' + ' ' * 11)
         return f'Dependency({formatted_data}, grad_fn)'
 
 
@@ -19,18 +20,17 @@ class Tensor:
     
     def __init__(self, data: Arraylike,
                  requires_grad: bool = False,
-                 depends_on: Optional[List[Dependency]] = None) -> None:
+                 depends_on: list[Dependency] | None= None) -> None:
         
         self.data = np.asarray(data) # Could be np.asanyarray
         self.requires_grad = requires_grad
         
-        if depends_on is None: self.depends_on = []
-        else: self.depends_on = depends_on
+        self.depends_on: list[Dependency] = [] if depends_on is None else depends_on
         
         self.shape = self.data.shape
         
-        self.grad: Optional[np.ndarray] = None
-        if requires_grad: self.grad = np.zeros_like(self.data)
+        self.grad: np.ndarray | None = np.zeros_like(self.data) if requires_grad else None
+
     
     def __repr__(self) -> str:
         # same number of ' ' than letters in Tensor( = 7
@@ -40,27 +40,27 @@ class Tensor:
     def __array__(self) -> np.ndarray:
         return self.data
     
-    def __neg__(self) -> 'Tensor':
+    def __neg__(self) -> Tensor:
         return neg(self)
     
-    def __add__(self, other: Tensorlike) -> 'Tensor':
+    def __add__(self, other: Tensorlike) -> Tensor:
         return add(self, other)
     
-    def __radd__(self, other) -> 'Tensor':
+    def __radd__(self, other) -> Tensor:
         return add(self, other)
     
-    def __iadd__(self, other: Tensorlike) -> 'Tensor':
+    def __iadd__(self, other: Tensorlike) -> Tensor:
         if not isinstance(other, Tensor): other = Tensor(other)
         self.data = self.data + other.data
         return self
     
-    def __sub__(self, other: Tensorlike) -> 'Tensor':
+    def __sub__(self, other: Tensorlike) -> Tensor:
         return sub(self, other)
     
-    def __mul__(self, other: Tensorlike) -> 'Tensor':
+    def __mul__(self, other: Tensorlike) -> Tensor:
         return mul(self, other)
     
-    def __matmul__(self, other: Tensorlike) -> 'Tensor':
+    def __matmul__(self, other: Tensorlike) -> Tensor:
         return matmul(self, other)
     
     def zero_grad(self) -> None:
@@ -72,7 +72,7 @@ class Tensor:
             backward_grad = dependency.grad_fn(self.grad)
             dependency.tensor.grad = dependency.tensor.grad + backward_grad
     
-    def backward(self, grad: Optional[Arraylike] = None) -> None:
+    def backward(self, grad: np.ndarray | None = None) -> None:
         assert self.requires_grad, "called backward on non-requires-grad tensor"
         
         if grad is None: grad = np.ones_like(self.data)
@@ -81,11 +81,29 @@ class Tensor:
         for node in _build_topo(self, reverse=True):
             node._backward()
     
-    def sum(self, axis: Optional[int] = None) -> 'Tensor':
+    def sum(self, axis: int | None = None) -> 'Tensor':
         return tensor_sum(self, axis)
 
 
-def tensor_sum(t: Tensor, axis: Optional[int] = None) -> Tensor:
+
+def as_tensor(data: Tensorlike, requires_grad: bool | None = None) -> Tensor:
+    if isinstance(data, Tensor):
+        # If the user didn't specify, inherit from the existing tensor
+        if requires_grad is None:
+            requires_grad = data.requires_grad
+        
+        # If the requirements match, return the same object (Zero-copy optimization)
+        if data.requires_grad == requires_grad:
+            return data
+        
+        # If the user wants to change requires_grad, we create a new view
+        # We use data.data so we don't accidentally wrap a Tensor in a Tensor
+        return Tensor(data.data, requires_grad=requires_grad)
+
+    # If it's ArrayLike (list, ndarray, float), create a new Tensor
+    return Tensor(data, requires_grad=requires_grad or False)
+
+def tensor_sum(t: Tensor, axis: int | None = None) -> Tensor:
     data = t.data.sum(axis=axis)
     requires_grad = t.requires_grad
     
@@ -99,8 +117,8 @@ def tensor_sum(t: Tensor, axis: Optional[int] = None) -> Tensor:
     return Tensor(data, requires_grad, depends_on)
 
 def _add_sub(t1: Tensorlike, t2: Tensorlike, is_sub: bool) -> Tensor:
-    if not isinstance(t1, Tensor): t1 = Tensor(t1)
-    if not isinstance(t2, Tensor): t2 = Tensor(t2)
+    t1 = as_tensor(t1)
+    t2 = as_tensor(t2)
     
     if is_sub:  data = t1.data - t2.data
     else:       data = t1.data + t2.data
@@ -217,7 +235,7 @@ def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
                   requires_grad,
                   depends_on)
 
-def _build_topo(node: Tensor, topo: Optional[List[Tensor]] = None, visited: Optional[Set[Tensor]]=None, reverse: bool = False) -> list:
+def _build_topo(node: Tensor, topo: list[Tensor] | None = None, visited: set[Tensor] | None=None, reverse: bool = False) -> list:
     if topo is None: topo = []
     if visited is None: visited = set()
     if node not in visited:
