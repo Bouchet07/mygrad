@@ -11,6 +11,11 @@ dependencies = [
     "numpy>=2.2.6",
 ]
 
+[project.optional-dependencies]
+diagrams = [
+    "graphviz>=0.21",
+]
+
 [build-system]
 requires = ["uv_build>=0.10.1,<0.11.0"]
 build-backend = "uv_build"

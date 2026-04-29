@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import numpy as np
 from typing import Callable, NamedTuple, TypeAlias
+from numpy.typing import ArrayLike
+
+import sys
 
 class Tensor: ...
-
-Arraylike: TypeAlias = np.ndarray | list | float
-Tensorlike: TypeAlias = Arraylike | Tensor
+    
+Tensorlike: TypeAlias = ArrayLike | Tensor
 
 class Dependency(NamedTuple):
     tensor: Tensor
@@ -13,14 +17,15 @@ class Dependency(NamedTuple):
     def __repr__(self) -> str:
         # same number of ' ' than letters in Dependency( = 11
         formatted_data = repr(self.tensor).replace('\n', '\n' + ' ' * 11)
-        return f'Dependency({formatted_data}, grad_fn)'
+        return f'Dependency({formatted_data}, grad_fn, op={self.op})'
 
 
 class Tensor:
     
-    def __init__(self, data: Arraylike,
+    def __init__(self, data: ArrayLike,
                  requires_grad: bool = False,
-                 depends_on: list[Dependency] | None= None) -> None:
+                 depends_on: list[Dependency] | None = None,
+                 name: str | None = None) -> None:
         
         self.data = np.asarray(data) # Could be np.asanyarray
         self.requires_grad = requires_grad
@@ -30,12 +35,14 @@ class Tensor:
         self.shape = self.data.shape
         
         self.grad: np.ndarray | None = np.zeros_like(self.data) if requires_grad else None
+        self._op: str = '?' # The operation that created this tensor, for visualization purposes
+        self.name = name
 
     
     def __repr__(self) -> str:
         # same number of ' ' than letters in Tensor( = 7
         formatted_data = repr(self.data).replace('\n', '\n       ')
-        return f"Tensor({formatted_data}, requires_grad={self.requires_grad})"
+        return f"Tensor({formatted_data}, requires_grad={self.requires_grad}, name={self.name})"
     
     def __array__(self) -> np.ndarray:
         return self.data
@@ -90,11 +97,12 @@ class Tensor:
         
         self.grad = np.asarray(grad)
         
-        for node in _build_topo(self, reverse=True):
+        for node in reversed(_build_topo(self)):
             node._backward()
     
     def sum(self, axis: int | None = None) -> Tensor:
         return tensor_sum(self, axis)
+    
 
 
 
@@ -163,7 +171,9 @@ def _add_sub(t1: Tensorlike, t2: Tensorlike, is_sub: bool) -> Tensor:
         def grad_fn2(grad: np.ndarray): return grad_fn(grad, t2, True)
         depends_on.append(Dependency(t2, grad_fn2))
     
-    return Tensor(data, requires_grad, depends_on)
+    out = Tensor(data, requires_grad, depends_on)
+    out._op = '-' if is_sub else '+'
+    return out
 
 def add(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     return _add_sub(t1, t2, False)
@@ -203,7 +213,9 @@ def mul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
         def grad_fn2(grad: np.ndarray): return grad_fn(grad, t2, t1)
         depends_on.append(Dependency(t2, grad_fn2))
     
-    return Tensor(data, requires_grad, depends_on)
+    out = Tensor(data, requires_grad, depends_on)
+    out._op = '*' # for visualization purposes
+    return out
 
 # I could've used multiplication by (-1) to do this, but it is more efficient like this
 # It doesn't create another tensor for -1, and the bradcasting doesn't need to be looked at
@@ -216,7 +228,9 @@ def neg(t: Tensorlike) -> Tensor:
     else:
         depends_on = []
     
-    return Tensor(data, t.requires_grad, depends_on)
+    out = Tensor(data, t.requires_grad, depends_on)
+    out._op = 'neg' # for visualization purposes
+    return out
 
 def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
     """
@@ -236,25 +250,23 @@ def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
 
     if t1.requires_grad:
         def grad_fn1(grad: np.ndarray) -> np.ndarray:
-            return grad @ t2.data.T
+            return grad @ t2.data.swapaxes(-1, -2)
 
         depends_on.append(Dependency(t1, grad_fn1))
 
     if t2.requires_grad:
         def grad_fn2(grad: np.ndarray) -> np.ndarray:
-            return t1.data.T @ grad
+            return t1.data.swapaxes(-1, -2) @ grad
         depends_on.append(Dependency(t2, grad_fn2))
 
-    return Tensor(data,
-                  requires_grad,
-                  depends_on)
+    out = Tensor(data, requires_grad, depends_on)
+    out._op = '@' # for visualization purposes
+    return out
 
 def _build_topo(node: Tensor, topo: list[Tensor] | None = None,
-                visited: set[Tensor] | None=None, reverse: bool = False) -> list:
-    
+                visited: set[Tensor] | None = None) -> list[Tensor]:
     if topo is None:
         topo = []
-    
     if visited is None:
         visited = set()
     
@@ -263,8 +275,69 @@ def _build_topo(node: Tensor, topo: list[Tensor] | None = None,
         for dependency in node.depends_on:
             _build_topo(dependency.tensor, topo, visited)
         topo.append(node)
-    
-    if reverse:
-        topo = list(reversed(topo))
-    
+        
     return topo
+
+
+def find_tensor_name(target_tensor: 'Tensor') -> str:
+    # We look 2 frames back: 
+    # Frame 0: find_tensor_name
+    # Frame 1: draw_topo / build_visual
+    # Frame 2: Your Notebook/Script
+    try:
+        frame = sys._getframe(3)
+        for name, value in frame.f_locals.items():
+            if value is target_tensor:
+                return name
+    except (ValueError, AttributeError):
+        pass
+    return "tmp" # Fallback for intermediate results
+
+def draw_topo(root: Tensor, format: str = 'svg'):
+    from graphviz import Digraph
+    dot = Digraph(format=format, graph_attr={'rankdir': 'BT', 'concentrate': 'true'})
+    
+    nodes, edges = set(), set()
+
+    def build_visual(node: Tensor):
+        u_id = str(id(node))
+        if u_id not in nodes:
+            nodes.add(u_id)
+            
+            # --- NAME DISCOVERY ---
+            # 1. Manual name check
+            # 2. Variable name check (the "Sniffer")
+            # 3. Fallback to "tmp"
+            var_name = getattr(node, 'name', None) or find_tensor_name(node)
+            
+            # Label includes the name and the shape
+            label = f"{var_name}\n{node.shape}"
+            
+            # Color coding: Leaf nodes are blue, results are grey
+            is_leaf = not node.depends_on
+            fill = '#e1f5fe' if is_leaf else '#f5f5f5'
+            
+            dot.node(name=u_id, label=label, shape='box', style='filled', 
+                     fillcolor=fill, fontname='Arial')
+
+            # --- UNIFIED OPERATION NODE ---
+            op_name = getattr(node, '_op', None)
+            if op_name and node.depends_on:
+                op_id = u_id + "_op"
+                dot.node(name=op_id, label=op_name, shape='circle', 
+                         style='filled', fillcolor='#ffecb3', fontsize='10')
+                
+                dot.edge(op_id, u_id)
+                
+                for dep in node.depends_on:
+                    child = dep.tensor
+                    dot.edge(str(id(child)), op_id)
+                    build_visual(child)
+            else:
+                for dep in node.depends_on:
+                    child = dep.tensor
+                    dot.edge(str(id(child)), u_id)
+                    build_visual(child)
+
+    build_visual(root)
+    return dot

@@ -1,44 +1,47 @@
-from mygrad.tensor import *
-from mygrad.act_fun import *
-import mygrad
+import numpy as np
 
-class Layer():
+from mygrad.tensor import Tensor, as_tensor, Tensorlike
 
-    def __init__(self, nin: int, nout: int,
-                 actf: str | Callable[[Arraylike], Tensor] | None = 'relu'):
-        W = np.random.randn(nin,nout)
-        b = np.random.randn(1, nout)
+class Module:
+    def parameters(self) -> list[Tensor]:
+        """Returns a list of all trainable Tensors in this module."""
+        params = []
+        for val in self.__dict__.values():
+            if isinstance(val, Tensor) and val.requires_grad:
+                params.append(val)
+            elif isinstance(val, Module):
+                params.extend(val.parameters())
+            # (Optional: handle lists of modules/tensors here)
+        return params
+
+class Linear(Module):
+    def __init__(self, in_features: int, out_features: int):
+        # Scale weights to prevent exploding/vanishing gradients
+        scale = 1.0 / np.sqrt(in_features)
+        W = np.random.randn(in_features, out_features) * scale
+        
+        # Biases are usually initialized to zero
+        b = np.zeros((1, out_features))
+        
         self.W = Tensor(W, requires_grad=True)
         self.b = Tensor(b, requires_grad=True)
-        self.actf = lambda x: None
-        if actf is not None: 
-            if isinstance(actf, str): 
-                if actf in mygrad.act_fun.__all__: self.actf = eval(actf)
-                else: raise NotImplementedError(f"{actf} not implemented yet")
-            elif callable(actf): self.actf = actf
-            else: raise TypeError(f"type: {type(actf)} not allowed")
     
-    def __call__(self, X: Arraylike):
-        return self.actf(matmul(X, self.W) + self.b)
-                
-    
-class MLP():
-    def __init__(self, nin: int, nouts: list[int], actf_l: str | list[str]) -> None:
-        sz = [nin] + nouts
-        if isinstance(actf_l, str): actf_l = [actf_l]*(len(nouts)-1)+[None]
-        self.layers = [Layer(sz[i], sz[i+1], actf_l[i]) for i in range(len(nouts))]
-    
-    def __call__(self, X: Arraylike):
-        for layer in self.layers:
-            X = layer(X)
-        return X
+    def __call__(self, X: Tensorlike) -> Tensor:
+        # Just the affine transformation
+        return as_tensor(X) @ self.W + self.b
 
-    def zero_grad(self):
+class Sequential(Module):
+    def __init__(self, *layers: Module):
+        self.layers = layers
+
+    def __call__(self, X: Tensorlike) -> Tensor:
+        out = as_tensor(X)
         for layer in self.layers:
-            layer.W.zero_grad()
-            layer.b.zero_grad()
-    
-    def optimize(self, lr: float):
+            out = layer(out)
+        return out
+        
+    def parameters(self) -> list[Tensor]:
+        params = []
         for layer in self.layers:
-            layer.W.data = layer.W.data - layer.W.grad * lr
-            layer.b.data = layer.b.data - layer.b.grad * lr
+            params.extend(layer.parameters())
+        return params
