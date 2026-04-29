@@ -1,6 +1,8 @@
 import numpy as np
 
-from mygrad.tensor import Tensor, as_tensor, Tensorlike
+from mygrad.tensor import Tensor, as_tensor, Tensorlike, Dependency
+from mygrad.nn.functional.fun import cross_entropy, binary_cross_entropy, binary_cross_entropy_with_logits
+from mygrad.nn.functional.act_fun import relu
 
 class Module:
     def parameters(self) -> list[Tensor]:
@@ -45,3 +47,20 @@ class Sequential(Module):
         for layer in self.layers:
             params.extend(layer.parameters())
         return params
+    
+
+class CrossEntropyLoss:
+    def __call__(self, logits: Tensorlike, targets: Tensorlike) -> Tensor:
+        return cross_entropy(logits, targets)
+
+class BCEWithLogitsLoss:
+    def __call__(self, logits: Tensorlike, targets: Tensorlike) -> Tensor:
+        return binary_cross_entropy_with_logits(logits, targets)
+
+class BCELoss:
+    def __call__(self, probs: Tensorlike, targets: Tensorlike) -> Tensor:
+        return binary_cross_entropy(probs, targets)
+    
+class ReLU(Module):
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return relu(X)
