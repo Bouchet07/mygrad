@@ -1,8 +1,8 @@
 import numpy as np
 
-from mygrad.tensor import Tensor, as_tensor, Tensorlike, Dependency
-from mygrad.nn.functional.fun import cross_entropy, binary_cross_entropy, binary_cross_entropy_with_logits
-from mygrad.nn.functional.act_fun import relu
+from mygrad.tensor import Tensor, as_tensor, Tensorlike
+from mygrad.nn.functional.fun import cross_entropy, binary_cross_entropy, binary_cross_entropy_with_logits, mse_loss
+from mygrad.nn.functional.act_fun import relu, tanh, sigmoid, leaky_relu, elu, selu, gelu, identity, step
 
 class Module:
     def parameters(self) -> list[Tensor]:
@@ -49,18 +49,66 @@ class Sequential(Module):
         return params
     
 
-class CrossEntropyLoss:
+class CrossEntropyLoss(Module):
     def __call__(self, logits: Tensorlike, targets: Tensorlike) -> Tensor:
         return cross_entropy(logits, targets)
 
-class BCEWithLogitsLoss:
+class BCEWithLogitsLoss(Module):
     def __call__(self, logits: Tensorlike, targets: Tensorlike) -> Tensor:
         return binary_cross_entropy_with_logits(logits, targets)
 
-class BCELoss:
+class BCELoss(Module):
     def __call__(self, probs: Tensorlike, targets: Tensorlike) -> Tensor:
         return binary_cross_entropy(probs, targets)
     
 class ReLU(Module):
     def __call__(self, X: Tensorlike) -> Tensor:
         return relu(X)
+
+class Tanh(Module):
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return tanh(X)
+
+class Sigmoid(Module):
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return sigmoid(X)
+
+class LeakyReLU(Module):
+    def __init__(self, alpha: float = 0.01):
+        self.alpha = alpha
+
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return leaky_relu(X, self.alpha)
+
+class ELU(Module):
+    def __init__(self, alpha: float = 1.0):
+        self.alpha = alpha
+
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return elu(X, self.alpha)
+
+class SELU(Module):
+    def __init__(self, 
+                 alpha: float = 1.6732632423543772, 
+                 scale: float = 1.0507009873554805):
+        self.alpha = alpha
+        self.scale = scale
+
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return selu(X, self.alpha, self.scale)
+
+class GELU(Module):
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return gelu(X)
+
+class Identity(Module):
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return identity(X)
+
+class Step(Module):
+    def __call__(self, X: Tensorlike) -> Tensor:
+        return step(X)
+
+class MSELoss(Module):
+    def __call__(self, preds: Tensorlike, targets: Tensorlike) -> Tensor:
+        return mse_loss(preds, targets)

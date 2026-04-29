@@ -1,2 +1,2 @@
-from .nn import *
-from .functional.act_fun import *
+from .modules import *
+from .functional import *

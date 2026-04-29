@@ -2,7 +2,7 @@ import numpy as np
 from mygrad.tensor import Tensor, as_tensor, Tensorlike
 from .utils import _apply_fun
 
-__all__ = ['tanh', 'sigm', 'relu', 'lrelu', 'elu', 'selu', 'gelu','identity', 'step']
+__all__ = ['tanh', 'sigmoid', 'relu', 'leaky_relu', 'elu', 'selu', 'gelu','identity', 'step']
 
 def identity(t: Tensorlike) -> Tensor:
     """Identity function: f(x) = x."""
@@ -27,13 +27,13 @@ def tanh(t: Tensorlike) -> Tensor:
     data = np.tanh(t.data)
     return _apply_fun(t, data, lambda: 1 - data**2, "Tanh")
 
-def sigm(t: Tensorlike) -> Tensor:
+def sigmoid(t: Tensorlike) -> Tensor:
     """Sigmoid activation function."""
     t = as_tensor(t)
     data = 1 / (1 + np.exp(-t.data))
     return _apply_fun(t, data, lambda: data * (1 - data), "Sigmoid")
 
-def lrelu(t: Tensorlike, alpha: float = 0.01) -> Tensor:
+def leaky_relu(t: Tensorlike, alpha: float = 0.01) -> Tensor:
     """Leaky ReLU: x if x > 0 else alpha * x."""
     t = as_tensor(t)
     mask = (t.data > 0).astype(t.data.dtype)

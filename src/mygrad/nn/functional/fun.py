@@ -87,3 +87,24 @@ def binary_cross_entropy_with_logits(logits: Tensorlike, targets: Tensorlike) ->
     out = Tensor(loss_data, requires_grad=logits.requires_grad, depends_on=depends_on)
     out._op = "BCEWithLogitsLoss"
     return out
+
+def mse_loss(preds: Tensorlike, targets: Tensorlike) -> Tensor:
+    preds = as_tensor(preds)
+    targets_np = np.asarray(targets)
+    
+    if targets_np.shape != preds.shape:
+        targets_np = targets_np.reshape(preds.shape)
+    
+    N = preds.shape[0]
+    loss_data = np.sum((preds.data - targets_np) ** 2) / N
+    
+    depends_on = []
+    if preds.requires_grad:
+        def grad_fn(grad: np.ndarray) -> np.ndarray:
+            return grad * 2 * (preds.data - targets_np) / N
+        
+        depends_on.append(Dependency(preds, grad_fn))
+        
+    out = Tensor(loss_data, requires_grad=preds.requires_grad, depends_on=depends_on)
+    out._op = "MSELoss"
+    return out
