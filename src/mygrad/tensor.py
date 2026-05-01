@@ -249,22 +249,35 @@ def matmul(t1: Tensorlike, t2: Tensorlike) -> Tensor:
                   requires_grad,
                   depends_on)
 
-def _build_topo(node: Tensor, topo: list[Tensor] | None = None,
-                visited: set[Tensor] | None=None, reverse: bool = False) -> list:
+def _build_topo(node: Tensor, reverse: bool = False) -> list[Tensor]:
+    topo: list[Tensor] = []
+    visited: set[Tensor] = set()
+    stack = [(node, False)]  # (current_node, has_visited_dependencies)
+
+    while stack:
+        curr, processed = stack.pop()
+        
+        if curr in visited:
+            continue
+            
+        if processed:
+            visited.add(curr)
+            topo.append(curr)
+        else:
+            # Push the node back to the stack, marked as 'processed'
+            stack.append((curr, True))
+            # Push all dependencies to be processed first
+            for dep in curr.depends_on:
+                if dep.tensor not in visited:
+                    stack.append((dep.tensor, False))
+
+    return list(reversed(topo)) if reverse else topo
+
+def print_graph(node: Tensor, depth: int = 0):
+    indent = "  " * depth
+    # Using id() helps distinguish between different tensors with same data
+    label = f"Tensor(id={id(node) % 1000}, shape={node.shape})"
+    print(f"{indent}└─ {label}")
     
-    if topo is None:
-        topo = []
-    
-    if visited is None:
-        visited = set()
-    
-    if node not in visited:
-        visited.add(node)
-        for dependency in node.depends_on:
-            _build_topo(dependency.tensor, topo, visited)
-        topo.append(node)
-    
-    if reverse:
-        topo = list(reversed(topo))
-    
-    return topo
+    for dep in node.depends_on:
+        print_graph(dep.tensor, depth + 1)
